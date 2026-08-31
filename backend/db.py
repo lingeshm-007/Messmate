@@ -6,19 +6,44 @@ import json
 import os
 from datetime import datetime, timedelta
 
-DB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
-DB_PATH = os.path.join(DB_DIR, "messmate.db")
+def get_db_path():
+    if os.environ.get('VERCEL') or os.environ.get('AWS_LAMBDA_FUNCTION_NAME'):
+        return '/tmp/messmate.db'
+    db_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    try:
+        os.makedirs(db_dir, exist_ok=True)
+        test_file = os.path.join(db_dir, ".write_test")
+        with open(test_file, "w") as f:
+            f.write("1")
+        os.remove(test_file)
+        return os.path.join(db_dir, "messmate.db")
+    except Exception:
+        return "/tmp/messmate.db"
 
 def get_db_connection():
-    os.makedirs(DB_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    db_path = get_db_path()
+    db_dir = os.path.dirname(db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+    
+    first_time = not os.path.exists(db_path)
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+
+    if first_time:
+        init_db(conn=conn)
+        seed_demo_data(force=False, conn=conn)
+
     return conn
 
-def init_db():
+def init_db(conn=None):
     """Initializes tables and seeds initial data if empty."""
-    conn = get_db_connection()
+    own_conn = False
+    if conn is None:
+        conn = get_db_connection()
+        own_conn = True
+
     cursor = conn.cursor()
 
     cursor.executescript("""
@@ -152,11 +177,15 @@ def init_db():
         """)
 
     conn.commit()
-    conn.close()
+    if own_conn:
+        conn.close()
 
-def seed_demo_data(force=False):
+def seed_demo_data(force=False, conn=None):
     """Populates realistic demo data including the complete Lingesh scenario and other students."""
-    conn = get_db_connection()
+    own_conn = False
+    if conn is None:
+        conn = get_db_connection()
+        own_conn = True
     cursor = conn.cursor()
 
     if not force:
@@ -526,7 +555,8 @@ def seed_demo_data(force=False):
     ))
 
     conn.commit()
-    conn.close()
+    if own_conn:
+        conn.close()
     print("MessMate database seeded successfully with realistic demo data!")
 
 if __name__ == "__main__":
