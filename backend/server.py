@@ -22,7 +22,8 @@ from .billing_engine import (
 )
 from .ai_prediction import predict_meal_demand
 
-STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
+PUBLIC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "public")
+STATIC_DIR = PUBLIC_DIR if os.path.exists(PUBLIC_DIR) else os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")
 
 class MessMateRequestHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
