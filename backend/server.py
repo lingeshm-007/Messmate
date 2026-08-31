@@ -74,29 +74,39 @@ class MessMateRequestHandler(http.server.SimpleHTTPRequestHandler):
         raw_path = parsed.path
         query = urllib.parse.parse_qs(parsed.query)
 
-        # Check if rewritten by Vercel with __path__ parameter
+        path = raw_path
+
+        # 1. Check if rewritten by Vercel with __path__ parameter
         if '__path__' in query:
             subpath = query.pop('__path__')[0]
             path = '/api/' + subpath.lstrip('/')
         else:
-            # Check Vercel / reverse-proxy headers
-            header_path = (
-                self.headers.get('x-matched-path') or
-                self.headers.get('x-now-route-matches') or
-                self.headers.get('x-forwarded-uri') or
-                self.headers.get('x-vercel-original-url') or
-                self.headers.get('x-invoke-path')
-            )
-            if header_path:
-                parsed_header = urllib.parse.urlparse(header_path)
-                path = parsed_header.path
-                if parsed_header.query:
-                    header_query = urllib.parse.parse_qs(parsed_header.query)
-                    for k, v in header_query.items():
-                        if k not in query:
-                            query[k] = v
-            else:
-                path = raw_path
+            # 2. Check x-now-route-matches header from Vercel rewrites (e.g., "1=settings" or "path=settings")
+            route_matches = self.headers.get('x-now-route-matches')
+            if route_matches:
+                try:
+                    match_qs = urllib.parse.parse_qs(route_matches)
+                    for key in ['1', '0', 'path', 'match']:
+                        if key in match_qs:
+                            subpath = match_qs[key][0]
+                            path = '/api/' + subpath.lstrip('/')
+                            break
+                except Exception:
+                    pass
+
+            # 3. Check proxy / Vercel path headers if path is generic entrypoint
+            if path in ['/api/index.py', '/api/index', '/api', '/api/']:
+                for header_key in ['x-matched-path', 'x-forwarded-uri', 'x-vercel-original-url', 'x-invoke-path', 'x-real-path', 'x-original-url']:
+                    header_val = self.headers.get(header_key)
+                    if header_val and not header_val.endswith('index.py'):
+                        parsed_header = urllib.parse.urlparse(header_val)
+                        path = parsed_header.path
+                        if parsed_header.query:
+                            header_query = urllib.parse.parse_qs(parsed_header.query)
+                            for k, v in header_query.items():
+                                if k not in query:
+                                    query[k] = v
+                        break
 
         # Normalize trailing slash
         if path != '/' and path.endswith('/'):
