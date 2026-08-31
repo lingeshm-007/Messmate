@@ -47,7 +47,17 @@ class MessMateRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(response_bytes)
 
     def send_error_json(self, message, status=400):
-        self.send_json({"error": message, "success": False}, status=status)
+        try:
+            path, query = self.parse_request_path_and_query()
+        except Exception:
+            path = getattr(self, 'path', 'unknown')
+        self.send_json({
+            "error": message,
+            "success": False,
+            "resolved_path": path,
+            "raw_path": getattr(self, 'path', ''),
+            "headers": dict(getattr(self, 'headers', {}))
+        }, status=status)
 
     def read_json_body(self):
         content_length = int(self.headers.get('Content-Length', 0))
