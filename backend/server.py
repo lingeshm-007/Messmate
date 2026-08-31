@@ -56,13 +56,49 @@ class MessMateRequestHandler(http.server.SimpleHTTPRequestHandler):
         body = self.rfile.read(content_length).decode('utf-8')
         return json.loads(body)
 
+    def parse_request_path_and_query(self):
+        """
+        Extracts clean API path and query parameters across local server and Vercel serverless functions.
+        """
+        parsed = urllib.parse.urlparse(self.path)
+        raw_path = parsed.path
+        query = urllib.parse.parse_qs(parsed.query)
+
+        # Check if rewritten by Vercel with __path__ parameter
+        if '__path__' in query:
+            subpath = query.pop('__path__')[0]
+            path = '/api/' + subpath.lstrip('/')
+        else:
+            # Check Vercel / reverse-proxy headers
+            header_path = (
+                self.headers.get('x-matched-path') or
+                self.headers.get('x-now-route-matches') or
+                self.headers.get('x-forwarded-uri') or
+                self.headers.get('x-vercel-original-url') or
+                self.headers.get('x-invoke-path')
+            )
+            if header_path:
+                parsed_header = urllib.parse.urlparse(header_path)
+                path = parsed_header.path
+                if parsed_header.query:
+                    header_query = urllib.parse.parse_qs(parsed_header.query)
+                    for k, v in header_query.items():
+                        if k not in query:
+                            query[k] = v
+            else:
+                path = raw_path
+
+        # Normalize trailing slash
+        if path != '/' and path.endswith('/'):
+            path = path[:-1]
+
+        return path, query
+
     # -------------------------------------------------------------
     # ROUTE DISPATCHER
     # -------------------------------------------------------------
     def do_GET(self):
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
-        query = urllib.parse.parse_qs(parsed.query)
+        path, query = self.parse_request_path_and_query()
 
         # Static Assets
         if not path.startswith('/api/'):
@@ -145,8 +181,7 @@ class MessMateRequestHandler(http.server.SimpleHTTPRequestHandler):
             return self.send_error_json(str(e), 500)
 
     def do_POST(self):
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
+        path, query = self.parse_request_path_and_query()
 
         try:
             body = self.read_json_body()
@@ -188,8 +223,7 @@ class MessMateRequestHandler(http.server.SimpleHTTPRequestHandler):
             return self.send_error_json(str(e), 500)
 
     def do_PUT(self):
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
+        path, query = self.parse_request_path_and_query()
 
         try:
             body = self.read_json_body()
